@@ -1,5 +1,5 @@
 ---
-name: Build and publish a Docker image
+name: Build
 
 on:  # yamllint disable-line rule:truthy
     push:
@@ -14,7 +14,7 @@ on:  # yamllint disable-line rule:truthy
 
 env:
     ORGANIZATION: "derekstraka"
-    IMAGE_NAME: "terraform-azure"
+    IMAGE_NAME: "terraform-aws"
 
 jobs:
     load_supported_versions:
@@ -47,7 +47,7 @@ jobs:
               run: echo "BRANCH=${GITHUB_REF##*/}" >> $GITHUB_ENV
 
             - name: Build and save image tag
-              run: echo "IMAGE_TAG=${BRANCH}_terraform-${{ matrix.terraform_version }}_azcli-${{ matrix.AWS_CLI_VERSION }}" >> $GITHUB_ENV
+              run: echo "IMAGE_TAG=${BRANCH}_terraform-${{ matrix.terraform_version }}_awscli-${{ matrix.AWS_CLI_VERSION }}" >> $GITHUB_ENV
 
             - name: Set up QEMU
               uses: docker/setup-qemu-action@v2
@@ -61,14 +61,33 @@ jobs:
                   username: ${{ secrets.DOCKERHUB_USERNAME }}
                   password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
-            - name: Build and push Docker image
+            - name: Build docker image
+              uses: docker/build-push-action@v4
+              with:
+                  context: .
+                  load: true
+                  tags: ${{ env.ORGANIZATION }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG}}
+                  build-args: |
+                    TERRAFORM_VERSION=${{ matrix.terraform_version }}
+                    AWS_CLI_VERSION=${{ matrix.aws_cli_version }}
+
+            - name: Generate the tests from the templates
+              run: ./generate_tests.sh -t ${{ matrix.terraform_version }} -a ${{ matrix.aws_cli_version }}
+
+            - name: run structure tests
+              uses: plexsystems/container-structure-test-action@v0.1.0
+              with:
+                  image: ${{ env.ORGANIZATION }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG}}
+                  config: tests/test.yaml
+
+            - name: Push Docker image
               uses: docker/build-push-action@v4.1.1
               with:
                   context: .
                   file: ./Dockerfile
                   platforms: linux/amd64,linux/arm64
-                  push: ${{ github.ref_type == 'tag' ||  github.event.base_ref =='refs/heads/main' }}
+                  push: ${{ github.ref_type == 'tag' }}
                   tags: ${{ env.ORGANIZATION }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG}}
                   build-args: |
                     TERRAFORM_VERSION=${{ matrix.terraform_version }}
-                    AWS_CLI_VERSION=${{ matrix.AWS_CLI_VERSION }}
+                    AWS_CLI_VERSION=${{ matrix.aws_cli_version }}
